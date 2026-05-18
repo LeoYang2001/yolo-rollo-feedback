@@ -48,11 +48,15 @@ npm run vercel-dev               # or `npm run dev` if you don't need API routes
 
 After a customer submits feedback with their email:
 
-1. `_eligibility.ts` checks the `rewards` collection for the same email in the last 30 days + that today's daily cap (`REWARD_DAILY_CAP`, default 50) hasn't been hit.
-2. `_clover-giftcard.ts` calls `POST /v3/merchants/{mId}/gift_cards` to mint a $1 card (`REWARD_AMOUNT_CENTS`, default 100). Requires Clover's Gift Card service to be active on the merchant + `GIFTCARDS_W` permission on the API token.
-3. `qrcode` package generates a 480px QR PNG as a data URL.
-4. `_email.ts` sends the QR + card number via Resend.
-5. The reward outcome is returned in the `/api/feedback` response so `/thanks` can show the right copy.
+1. `_eligibility.ts` checks the `rewards` collection for the same email in the last 30 days + that today's daily cap (`REWARD_DAILY_CAP`, default 50) hasn't been hit. Uses single-field `where` queries (no composite indexes required).
+2. `_clover-giftcard.ts` (legacy filename — kept for import stability) generates a unique reward code in the `YR-XXXX-XXXX` format using `crypto.randomBytes`. Alphabet excludes ambiguous glyphs (0/O, 1/I/L) so the code can be read aloud if the QR fails to scan.
+3. `qrcode` package generates a 480px QR PNG (encoding the reward code) as a data URL.
+4. `_email.ts` sends the QR + code via Resend with a "$1 off your next visit" subject.
+5. The reward outcome is returned in `/api/feedback/submit` response so `/thanks` can show the right copy.
+
+**Why not real Clover gift cards?** Clover's REST `gift_cards` endpoint is read-only — `POST` returns 405. Programmatic gift card minting requires a POS-side sale or a vendor-specific API (Valutec / SVS) that's not exposed via the standard token. Custom codes give us full control and a clean audit trail in Firestore.
+
+**Redemption at the counter** is via `/redeem` (see below). Staff scans → page validates code is valid + first-scan → staff manually applies $1 off in Clover (one-tap discount line). The reward code is stamped `scannedAt + scanCount` in Firestore so a second scan flags as a re-use.
 
 **Disabling the reward** without redeploying: set `REWARD_DAILY_CAP=0` in Vercel. Feedback writes keep working; customers get a neutral "thanks" page.
 

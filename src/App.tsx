@@ -221,11 +221,11 @@ function FeedbackForm({
             </div>
             <div>
               <h2 className="font-display text-xl font-bold text-rollo-ink leading-tight">
-                Get a $1 gift card on us
+                Get $1 off your next visit
               </h2>
               <p className="text-rollo-ink-soft text-sm mt-1">
-                Drop your email and we'll send a $1 Yolo Rollo gift card to
-                use on your next visit. One per customer.
+                Drop your email and we'll send a $1-off code you can use on
+                your next visit. One per customer.
               </p>
             </div>
           </div>

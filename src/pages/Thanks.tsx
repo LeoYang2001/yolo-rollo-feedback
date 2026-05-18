@@ -51,11 +51,11 @@ function renderRewardBlock(reward?: RewardResponse) {
     return (
       <RewardCard tone="success" emoji="🎁">
         <div className="font-bold text-rollo-pink-deep">
-          Check your email — your $1 gift card is on the way.
+          Check your email — your $1-off code is on the way.
         </div>
         {reward.cardLast4 && (
           <div className="text-rollo-ink-soft text-sm mt-1">
-            Card ending in <span className="font-mono">{reward.cardLast4}</span>
+            Code ending in <span className="font-mono">{reward.cardLast4}</span>
           </div>
         )}
         <div className="text-rollo-ink-muted text-xs mt-2">
@@ -68,12 +68,12 @@ function renderRewardBlock(reward?: RewardResponse) {
     return (
       <RewardCard tone="warn" emoji="⚠️">
         <div className="font-bold text-rollo-ink">
-          Your $1 card is ready but the email didn't go through.
+          Your $1-off code is ready but the email didn't go through.
         </div>
         <div className="text-rollo-ink-soft text-sm mt-1">
           Show this to staff and we'll look it up:
           {reward.cardLast4 && (
-            <> card ending in <span className="font-mono">{reward.cardLast4}</span></>
+            <> code ending in <span className="font-mono">{reward.cardLast4}</span></>
           )}
         </div>
       </RewardCard>

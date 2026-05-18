@@ -79,19 +79,19 @@ export function renderGiftCardEmail(args: {
       <div style="font-family:'Bagel Fat One',sans-serif;font-size:32px;color:#EC1E79;line-height:1;">yolo rollo</div>
       <h1 style="font-size:24px;font-weight:800;margin:24px 0 8px;">${hello}</h1>
       <p style="font-size:16px;line-height:1.5;color:rgba(42,23,34,0.62);margin:0 0 24px;">
-        Thanks for the feedback. Here's a $${amount} gift card on us — show this QR at the counter on your next visit.
+        Thanks for the feedback. Here's $${amount} off your next visit — show this QR (or read the code) to staff at the counter.
       </p>
       <div style="background:#FFFFFF;border-radius:22px;padding:24px;text-align:center;box-shadow:0 6px 18px -10px rgba(184,21,96,0.18);">
-        <img src="${args.qrDataUrl}" alt="Gift card QR" style="width:240px;height:240px;display:block;margin:0 auto;" />
-        <div style="margin-top:16px;font-family:'Geist Mono',monospace;font-size:14px;letter-spacing:2px;color:rgba(42,23,34,0.62);">
+        <img src="${args.qrDataUrl}" alt="$${amount} reward QR" style="width:240px;height:240px;display:block;margin:0 auto;" />
+        <div style="margin-top:16px;font-family:'Geist Mono',monospace;font-size:18px;letter-spacing:2px;color:#2A1722;font-weight:600;">
           ${escape(args.cardNumber)}
         </div>
         <div style="margin-top:8px;font-size:13px;color:rgba(42,23,34,0.40);">
-          Value: <strong style="color:#EC1E79;">$${amount}</strong> · Use once
+          Value: <strong style="color:#EC1E79;">$${amount} off</strong> · Use once · Expires in 60 days
         </div>
       </div>
       <p style="font-size:13px;line-height:1.5;color:rgba(42,23,34,0.40);margin-top:24px;text-align:center;">
-        Can't scan? Show the card number to staff and we'll punch it in manually.
+        Can't scan? Read the code aloud and staff will type it in.
       </p>
     </div>
   </body>

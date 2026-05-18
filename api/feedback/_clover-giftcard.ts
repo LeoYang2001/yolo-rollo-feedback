@@ -1,45 +1,55 @@
 /**
- * Clover Gift Card creation.
+ * Reward code generator (not actually a Clover gift card any more).
  *
- * Calls Clover's first-party Gift Cards API to mint a fresh card with
- * the configured reward amount (default 100¢ = $1.00). Returns the
- * card details we need to render a QR.
+ * We tried calling Clover's `/v3/merchants/{mId}/gift_cards` POST to
+ * mint real gift cards programmatically — Clover returned 405 because
+ * that endpoint is read-only. Programmatic creation of Clover gift
+ * cards requires either a POS-side sale or a vendor-specific API
+ * (Valutec, SVS, etc.) that we don't have access to.
  *
- * IMPORTANT: This requires the merchant to have Clover's Gift Card
- * service activated AND the REST API token to include the GIFTCARDS_W
- * permission. If either is missing, the call returns HTTP 401/403 or
- * 404 and we surface that as a typed error so the caller can fall back
- * gracefully (no reward issued, feedback still saved).
+ * Instead, we generate a unique short code per reward. The customer's
+ * email shows the QR + code; staff scans it on `/redeem`, validates
+ * (not expired, not already used), then manually applies the
+ * configured `REWARD_AMOUNT_CENTS` (default $1) off the order at the
+ * Clover POS — same workflow as a paper coupon, but trackable.
  *
- * The Clover docs for this API live under "Gift Cards" in the REST
- * reference. Endpoint pattern observed in production:
- *   POST /v3/merchants/{mId}/gift_cards
- *   Body: { amount: <cents> }
- *   Response: { id, cardNumber, balance, ... }
+ * Format: "YR-XXXX-XXXX" (10 chars + separators) using a 32-char
+ * alphabet that drops ambiguous glyphs (0/O, 1/I/L) so customers can
+ * read it aloud cleanly if the QR fails to scan.
  *
- * If your account's gift card vendor differs (Valutec / SVS), the
- * endpoint may be different — check your Clover dashboard's API tab.
- * Adjust the `endpoint` constant below if needed.
+ * The filename + exported symbols are kept identical to the old
+ * Clover-backed version so the surrounding code (submit.ts) doesn't
+ * need to change.
  */
 
-const ENDPOINT = "/gift_cards";
+import crypto from "node:crypto";
+
 const REWARD_AMOUNT_CENTS = Number(
   process.env.REWARD_AMOUNT_CENTS ?? 100, // default $1.00
 );
 
-const BASE = process.env.CLOVER_API_BASE ?? "https://api.clover.com";
-const MID = process.env.CLOVER_MERCHANT_ID ?? "";
-const TOKEN = process.env.CLOVER_API_TOKEN ?? "";
+// 32 characters, no 0/O/1/I/L. Powers of 2 size makes mapping bytes
+// → chars an unbiased bitmask.
+const ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ_";
 
 export interface IssuedGiftCard {
+  /** Firestore doc id (filled in by the caller after .add()). Left
+   *  empty here since the code doesn't know about Firestore. */
   id: string;
+  /** The redemption code itself. Customer shows this; staff scans on /redeem. */
   cardNumber: string;
-  /** Cents. */
+  /** Cents the customer gets off. */
   amount: number;
-  /** ISO string when the card was created. */
+  /** ISO when the code was minted. */
   createdAt: string;
 }
 
+/**
+ * Kept exported so existing imports in submit.ts still compile. We
+ * never throw this any more (the code generator can't fail under
+ * normal conditions) but the type is referenced as `instanceof` in
+ * the caller's catch block.
+ */
 export class GiftCardServiceUnavailable extends Error {
   constructor(message: string) {
     super(message);
@@ -47,57 +57,24 @@ export class GiftCardServiceUnavailable extends Error {
   }
 }
 
-interface CloverGiftCardResponse {
-  id?: string;
-  cardNumber?: string;
-  number?: string; // some versions use `number` instead of `cardNumber`
-  balance?: number;
-  createdTime?: number;
+export async function issueGiftCard(): Promise<IssuedGiftCard> {
+  return {
+    id: "", // populated by caller after Firestore.add()
+    cardNumber: generateCode(),
+    amount: REWARD_AMOUNT_CENTS,
+    createdAt: new Date().toISOString(),
+  };
 }
 
-export async function issueGiftCard(): Promise<IssuedGiftCard> {
-  if (!MID || !TOKEN) {
-    throw new GiftCardServiceUnavailable(
-      "Missing CLOVER_MERCHANT_ID or CLOVER_API_TOKEN",
-    );
+function generateCode(): string {
+  // 8 random characters from ALPHABET — gives 32^8 ≈ 1 trillion codes.
+  // Plenty of headroom even if we hand out 1K/day for years.
+  const bytes = crypto.randomBytes(8);
+  const chars: string[] = [];
+  for (let i = 0; i < 8; i++) {
+    chars.push(ALPHABET[bytes[i] & 0x1f]); // mod 32
   }
-
-  const url = `${BASE}/v3/merchants/${MID}${ENDPOINT}`;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ amount: REWARD_AMOUNT_CENTS }),
-  });
-
-  // 401/403/404 all suggest the gift card service isn't wired up for
-  // this merchant/token. Surface as a distinct error so the caller can
-  // continue without breaking the feedback path.
-  if (r.status === 401 || r.status === 403 || r.status === 404) {
-    const body = await r.text().catch(() => "");
-    throw new GiftCardServiceUnavailable(
-      `Clover gift card API ${r.status}: ${body.slice(0, 200)}`,
-    );
-  }
-  if (!r.ok) {
-    const body = await r.text().catch(() => "");
-    throw new Error(`Clover gift card API ${r.status}: ${body.slice(0, 200)}`);
-  }
-  const data = (await r.json()) as CloverGiftCardResponse;
-  const cardNumber = data.cardNumber ?? data.number;
-  if (!data.id || !cardNumber) {
-    throw new Error(
-      `Clover returned malformed gift card: ${JSON.stringify(data).slice(0, 200)}`,
-    );
-  }
-  return {
-    id: data.id,
-    cardNumber,
-    amount: REWARD_AMOUNT_CENTS,
-    createdAt: new Date(data.createdTime ?? Date.now()).toISOString(),
-  };
+  return `YR-${chars.slice(0, 4).join("")}-${chars.slice(4).join("")}`;
 }
 
 export const REWARD_AMOUNT = REWARD_AMOUNT_CENTS;
