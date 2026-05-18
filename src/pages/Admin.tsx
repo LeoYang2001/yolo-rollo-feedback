@@ -190,7 +190,7 @@ function Dashboard({
       params.set("minRating", String(ratingBand.min));
       params.set("maxRating", String(ratingBand.max));
       params.set("limit", "500");
-      const r = await fetch(`/api/feedback?${params.toString()}`, {
+      const r = await fetch(`/api/feedback/list?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (r.status === 401) {

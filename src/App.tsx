@@ -168,7 +168,7 @@ function FeedbackForm({
         name: name.trim() || undefined,
         email: email.trim() || undefined,
       };
-      const r = await fetch("/api/feedback", {
+      const r = await fetch("/api/feedback/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
