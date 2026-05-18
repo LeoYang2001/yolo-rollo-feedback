@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-rollo-paper text-rollo-ink font-body antialiased;
+  }
+}
+
+/* ─── Reusable component shorthands ───────────────────────────────── */
+@layer components {
+  .rollo-card {
+    @apply rounded-rollo-card bg-rollo-card shadow-rollo-card p-5;
+  }
+  .rollo-btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full
+           bg-rollo-pink text-white font-semibold px-6 py-3
+           shadow-rollo-pink transition active:scale-[0.98]
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .rollo-btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full
+           bg-white text-rollo-ink font-semibold px-6 py-3
+           shadow-rollo-soft transition active:scale-[0.98]
+           border border-rollo-ink-line
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .rollo-input {
+    @apply w-full rounded-2xl border border-rollo-ink-line bg-white px-4 py-3
+           text-rollo-ink placeholder:text-rollo-ink-muted
+           focus:outline-none focus:border-rollo-pink shadow-rollo-soft;
+  }
+  .rollo-label {
+    @apply block text-sm font-semibold text-rollo-ink-soft mb-2;
+  }
+}
