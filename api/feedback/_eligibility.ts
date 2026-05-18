@@ -60,29 +60,49 @@ export async function checkEligibility(args: {
   const db = firestore();
 
   // ── Dedupe (30 days) ──────────────────────────────────────────────
+  // Single-field where (auto-indexed, no composite index needed) plus
+  // an in-memory date filter. A given email/phone is expected to have
+  // at most a handful of rewards historically, so the over-fetch is
+  // trivial. Avoids Firestore's "this query needs a composite index"
+  // friction.
   const cutoffMs = Date.now() - DEDUPE_DAYS * 24 * 3600 * 1000;
-  const cutoff = new Date(cutoffMs);
+  const tsToMs = (v: unknown): number => {
+    if (
+      v &&
+      typeof v === "object" &&
+      typeof (v as { toMillis?: () => number }).toMillis === "function"
+    ) {
+      return (v as { toMillis: () => number }).toMillis();
+    }
+    return 0;
+  };
+  const hasRecent = (docs: { data(): { createdAt?: unknown } }[]) =>
+    docs.some((d) => tsToMs(d.data().createdAt) >= cutoffMs);
 
   if (email) {
     const dup = await db
       .collection("rewards")
       .where("email", "==", email)
-      .where("createdAt", ">=", cutoff)
-      .limit(1)
+      .limit(20)
       .get();
-    if (!dup.empty) return { eligible: false, reason: "already-rewarded" };
+    if (hasRecent(dup.docs)) {
+      return { eligible: false, reason: "already-rewarded" };
+    }
   }
   if (phone) {
     const dup = await db
       .collection("rewards")
       .where("phone", "==", phone)
-      .where("createdAt", ">=", cutoff)
-      .limit(1)
+      .limit(20)
       .get();
-    if (!dup.empty) return { eligible: false, reason: "already-rewarded" };
+    if (hasRecent(dup.docs)) {
+      return { eligible: false, reason: "already-rewarded" };
+    }
   }
 
   // ── Daily cap ────────────────────────────────────────────────────
+  // Single-field `where(createdAt, >=, dayStart).count()` IS auto-
+  // indexed (single-field queries always are), so this stays cheap.
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
   const todays = await db
