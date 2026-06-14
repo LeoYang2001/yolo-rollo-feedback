@@ -46,7 +46,6 @@ export function firestore(): Firestore {
 
 /** Shape we store under feedback/{autoId}. */
 export interface FeedbackDoc {
-  orderId?: string;
   categories: ("rolled" | "boba")[];
   rolled?: {
     flavorRating: number;

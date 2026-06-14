@@ -1,14 +1,31 @@
 # Yolo Rollo — Flavor Feedback
 
-A small companion app to the Yolo Rollo ordering site. Customers leave
-quick post-visit feedback; staff browse it on a PIN-gated dashboard.
+A standalone product-review web form for Yolo Rollo. Customers leave a
+quick review; if they rate us highly (avg > 4.5/5) we nudge them to post
+a public Google review, and anyone who leaves an email gets a $1-off
+Clover reward. Staff browse reviews on a PIN-gated dashboard.
+
+> **Not wired to ordering.** This app no longer talks to the online
+> ordering / Clover order system — it's a self-contained form. (The old
+> `?orderId=` pre-fill path and the `/api/order/*` lookup were removed.)
 
 ## Routes
 
-- `/` — customer form. With `?orderId=<clover-id>`, pre-fills which categories to ask about. Without, shows a "what did you have today?" picker.
-- `/thanks` — confirmation after submit (also shows reward status).
+- `/` — customer review form. Shows a "what did you have today?" picker, then the matching question sets.
+- `/review` — Google-review nudge, shown only to high raters (avg > 4.5/5) right before `/thanks`.
+- `/thanks` — confirmation after submit. Shows the $1 reward (code + QR) **on screen**, and emails a copy.
 - `/admin` — PIN-gated dashboard with filters by category, rating band, and date range.
 - `/redeem` — PIN-gated camera scanner for verifying gift card QRs at the counter.
+
+### Rating → Google review gate
+
+On submit the client averages the flavor star ratings across the
+categories reviewed. If that average is **> 4.5** (with whole-star
+ratings, effectively all 5s) the customer is routed through `/review`
+first — a full-screen "leave us a Google review" prompt — and then on to
+`/thanks` for their reward. Everyone at or below 4.5 goes straight to
+`/thanks`. The destination link is `VITE_GOOGLE_REVIEW_URL` (build-time);
+leave it blank to disable the nudge.
 
 ### Redemption workflow
 
@@ -22,39 +39,57 @@ quick post-visit feedback; staff browse it on a PIN-gated dashboard.
 
 ## Stack
 
-Same as the ordering site so design/patterns transfer cleanly:
+Shares the ordering site's design system so patterns transfer cleanly:
 
 - Vite + React 18 + TypeScript + Tailwind (Rollo "Sweet Sundae" palette)
 - Vercel serverless functions for API
-- Firebase Admin SDK → writes into the **same** Firebase project as ordering, in a new `feedback` collection
-- Clover REST API (read-only, just to look up order categories)
+- Firebase Admin SDK → writes into the **same** Firebase project as ordering, in a separate `feedback` collection
+- Clover Ecommerce Gift Card API for the $1 reward (with a custom-code fallback — see Reward path)
 
 ## Setup
 
 ```bash
 npm install
-cp .env.example .env.local      # fill in real values for local dev
-npm run vercel-dev               # or `npm run dev` if you don't need API routes locally
+cp .env.example .env             # fill in real values (see note below)
+npm run dev:full                 # Vite UI (:5174) + vercel dev API (:3001) together
 ```
+
+Then open http://localhost:5174.
+
+> **Use `.env`, not `.env.local`.** The `/api` functions run under
+> `vercel dev`, which reads **`.env`** and does *not* read `.env.local`.
+> Vite reads both, so a single `.env` covers the whole app. Both are
+> gitignored.
+
+**Local dev runs two servers** (wired together by `npm run dev:full`):
+Vite serves the frontend on `:5174` and proxies `/api/*` to a `vercel
+dev` instance on `:3001` that runs the serverless functions. This avoids
+a `vercel dev`/Vite conflict — the SPA rewrite in `vercel.json` (needed
+in production) otherwise intercepts Vite's dev module requests. Run the
+halves separately with `npm run dev` (UI only) and `npm run api` (API
+only) if you prefer.
+
+> First `npm run api` (or `dev:full`) auto-links the repo to a Vercel
+> project and creates a gitignored `.vercel/`. Requires `vercel login`.
 
 ## Deploy
 
 1. Push to a new GitHub repo named `yolo-rollo-feedback`.
 2. Import the repo in Vercel → "Add New Project".
-3. Add all env vars from `.env.example` (use the same values as the ordering project's vars).
+3. Add the env vars from `.env.example` (Firebase creds can be copied from the ordering project; set `VITE_GOOGLE_REVIEW_URL` and the reward/Resend vars for this app).
 4. Deploy.
 
 ## Reward path
 
-After a customer submits feedback with their email:
+After a customer submits a review with their email:
 
 1. `_eligibility.ts` checks the `rewards` collection for the same email in the last 30 days + that today's daily cap (`REWARD_DAILY_CAP`, default 50) hasn't been hit. Uses single-field `where` queries (no composite indexes required).
-2. `_clover-giftcard.ts` (legacy filename — kept for import stability) generates a unique reward code in the `YR-XXXX-XXXX` format using `crypto.randomBytes`. Alphabet excludes ambiguous glyphs (0/O, 1/I/L) so the code can be read aloud if the QR fails to scan.
-3. `qrcode` package generates a 480px QR PNG (encoding the reward code) as a data URL.
+2. `_clover-giftcard.ts` mints the reward. **Path 1 (preferred):** if `CLOVER_ECOMM_API_TOKEN` + `CLOVER_GIFT_CARD_PROMO_CODE` are set, it activates a real Clover virtual gift card via the Ecommerce `POST /v1/activate` endpoint. **Path 2 (fallback):** otherwise (or if that call fails) it generates a custom `YR-XXXX-XXXX` code with `crypto.randomBytes`; the alphabet excludes ambiguous glyphs (0/O, 1/I/L) so it can be read aloud if the QR won't scan.
+3. `qrcode` generates a 480px QR PNG (encoding the card number / code) as a data URL.
 4. `_email.ts` sends the QR + code via Resend with a "$1 off your next visit" subject.
-5. The reward outcome is returned in `/api/feedback/submit` response so `/thanks` can show the right copy.
+5. The reward — **including the full code + QR** — is returned in the `/api/feedback/submit` response so `/thanks` can render it **on screen** (and the right status copy). The full value is only ever shown to the customer who just earned it.
 
-**Why not real Clover gift cards?** Clover's REST `gift_cards` endpoint is read-only — `POST` returns 405. Programmatic gift card minting requires a POS-side sale or a vendor-specific API (Valutec / SVS) that's not exposed via the standard token. Custom codes give us full control and a clean audit trail in Firestore.
+**Why the fallback exists.** Clover's *REST* `gift_cards` endpoint is read-only (`POST` returns 405), so real cards must go through the separate *Ecommerce* Gift Card API, which needs dashboard setup (enable gift-card payments, create a promo code, mint an Ecommerce token). Until that's in place — or if it errors — the custom `YR-` code gives you a redeemable reward today with a clean Firestore audit trail. Flip between modes purely by setting/unsetting the `CLOVER_ECOMM_*` env vars; no redeploy.
 
 **Redemption at the counter** is via `/redeem` (see below). Staff scans → page validates code is valid + first-scan → staff manually applies $1 off in Clover (one-tap discount line). The reward code is stamped `scannedAt + scanCount` in Firestore so a second scan flags as a re-use.
 
@@ -64,19 +99,11 @@ After a customer submits feedback with their email:
 
 ## Architecture notes
 
-- **Same Firebase project** — credentials are reused from the ordering app; new collection `feedback` keeps writes isolated from `tickets`.
-- **No Firestore composite indexes needed** — `/api/feedback` orders by `createdAt` then filters in JS.
+- **Same Firebase project** — credentials are reused from the ordering app; the `feedback` collection keeps writes isolated from `tickets`.
+- **No Firestore composite indexes needed** — `/api/feedback/list` orders by `createdAt` then filters in JS.
 - **PIN auth** is stateless HMAC, same pattern as the KDS. Rotate `FEEDBACK_SESSION_SECRET` to invalidate every active token.
-- **Order category detection** is pure regex on item names (see `api/order/[orderId]/categories.ts`). Tune the regexes when you add new product categories.
+- **Standalone** — there's no dependency on the ordering app at runtime; share the form's URL via QR code, a link in the menu, a receipt footer, etc.
 
-## Wiring the confirmation-page link
+## Configuring the Google review link
 
-In the ordering app's order-confirmation page, add:
-
-```jsx
-<a href={`https://feedback.yolorollo.com/?orderId=${orderId}`}>
-  Rate your flavors →
-</a>
-```
-
-(Replace the host with whatever Vercel domain this app deploys to.)
+Set `VITE_GOOGLE_REVIEW_URL` (build-time, so re-deploy after changing it). Grab the link from your Google Business Profile → **Ask for reviews** — it looks like `https://g.page/r/<place-id>/review`. Leave it blank to disable the high-rating Google nudge entirely (high raters then just go straight to `/thanks`).

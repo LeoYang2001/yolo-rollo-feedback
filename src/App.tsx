@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type {
   BobaFeedback,
   Category,
   FeedbackPayload,
-  OrderCategoriesResponse,
   RolledFeedback,
   SubmitResponse,
 } from "./lib/types";
@@ -14,97 +13,34 @@ import BobaForm from "./components/BobaForm";
 import StarRating from "./components/StarRating";
 
 /**
- * Customer-facing feedback form.
+ * Customer-facing review form — standalone (not wired to ordering).
  *
- * Two entry paths:
- *   1. `/?orderId=XYZ` — came from the order-confirmation page. We hit
- *      `/api/order/{id}/categories` to figure out what they ordered and
- *      pre-select the matching question sets. Pre-fills item names so
- *      the customer doesn't have to retype.
- *   2. `/` (no orderId) — anonymous QR-code scan. They get a "what did
- *      you have today?" multiselect first, then category-specific
- *      question sets in sequence.
+ * Flow: a "what did you have today?" picker first, then the matching
+ * category question sets, then submit. On submit we mint a $1 reward
+ * (if they leave an email) and, for high ratings, nudge them to leave a
+ * Google review before showing their reward.
  */
 export default function App() {
-  const [params] = useSearchParams();
-  const orderId = params.get("orderId") ?? undefined;
   const navigate = useNavigate();
 
-  const [bootstrap, setBootstrap] = useState<OrderCategoriesResponse | null>(
-    null,
-  );
-  const [bootstrapErr, setBootstrapErr] = useState<string | null>(null);
-  const [bootstrapLoading, setBootstrapLoading] = useState(!!orderId);
-
-  // If we have an orderId, fetch the order categories so we can skip
-  // the "what did you have today?" step.
-  useEffect(() => {
-    if (!orderId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch(
-          `/api/order/${encodeURIComponent(orderId)}/categories`,
-        );
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data: OrderCategoriesResponse = await r.json();
-        if (!cancelled) setBootstrap(data);
-      } catch (e) {
-        // Non-fatal — fall through to the manual picker. We still
-        // record the orderId on the submission so we can join later.
-        if (!cancelled) setBootstrapErr((e as Error).message);
-      } finally {
-        if (!cancelled) setBootstrapLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orderId]);
-
-  // Once we know which categories apply, kick the form into "filling"
-  // mode. `null` means we're still on the picker step.
+  // `null` = still on the picker step; an array = which categories to ask.
   const [categories, setCategories] = useState<Category[] | null>(null);
-  useEffect(() => {
-    if (bootstrap && bootstrap.categories.length > 0) {
-      setCategories(bootstrap.categories);
-    }
-  }, [bootstrap]);
-
-  const initialRolledItems = useMemo(
-    () => bootstrap?.rolledItems?.join(", ") ?? "",
-    [bootstrap],
-  );
-  const initialBobaItems = useMemo(
-    () => bootstrap?.bobaItems?.join(", ") ?? "",
-    [bootstrap],
-  );
-
-  if (bootstrapLoading) {
-    return <CenteredSpinner label="Looking up your order…" />;
-  }
 
   if (!categories) {
-    return (
-      <CategoryPicker
-        bootstrapErr={bootstrapErr}
-        onContinue={(picked) => setCategories(picked)}
-      />
-    );
+    return <CategoryPicker onContinue={(picked) => setCategories(picked)} />;
   }
 
   return (
     <FeedbackForm
-      orderId={orderId}
       categories={categories}
-      initialRolledItems={initialRolledItems}
-      initialBobaItems={initialBobaItems}
-      customerName={bootstrap?.customerName}
-      onSubmitted={(data) =>
-        // Pass the reward outcome through react-router state so /thanks
-        // can render the right success/fallback message. Falls back
-        // gracefully if some older path navigates without state.
-        navigate("/thanks", { state: { reward: data.reward } })
+      onSubmitted={(data, highRating) =>
+        // High raters get routed through the Google-review prompt first;
+        // everyone lands on /thanks (which shows the reward). The reward
+        // outcome rides along in router state so the next page doesn't
+        // need to re-call the API.
+        navigate(highRating ? "/review" : "/thanks", {
+          state: { reward: data.reward },
+        })
       }
     />
   );
@@ -113,34 +49,26 @@ export default function App() {
 /* ─── Inner form ─────────────────────────────────────────────────── */
 
 function FeedbackForm({
-  orderId,
   categories,
-  initialRolledItems,
-  initialBobaItems,
-  customerName,
   onSubmitted,
 }: {
-  orderId?: string;
   categories: Category[];
-  initialRolledItems: string;
-  initialBobaItems: string;
-  customerName?: string;
-  onSubmitted: (data: SubmitResponse) => void;
+  onSubmitted: (data: SubmitResponse, highRating: boolean) => void;
 }) {
   const [rolled, setRolled] = useState<RolledFeedback>({
     flavorRating: 0,
     texture: "just-right",
     portion: "right",
-    flavorsTried: initialRolledItems,
+    flavorsTried: "",
   });
   const [boba, setBoba] = useState<BobaFeedback>({
     flavorRating: 0,
     sweetness: "right",
     bobaTexture: "chewy",
-    drinksTried: initialBobaItems,
+    drinksTried: "",
   });
   const [flavorWish, setFlavorWish] = useState("");
-  const [name, setName] = useState(customerName ?? "");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,13 +82,24 @@ function FeedbackForm({
     (!wantsRolled || rolled.flavorRating > 0) &&
     (!wantsBoba || boba.flavorRating > 0);
 
+  // Average of the flavor star ratings across the rated categories.
+  // "Above 4.5" → with whole-star ratings this is effectively all-5s.
+  // Drives the Google-review nudge (high raters only).
+  function isHighRating(): boolean {
+    const ratings: number[] = [];
+    if (wantsRolled) ratings.push(rolled.flavorRating);
+    if (wantsBoba) ratings.push(boba.flavorRating);
+    if (!ratings.length) return false;
+    const avg = ratings.reduce((a, b) => a + b, 0) / ratings.length;
+    return avg > 4.5;
+  }
+
   async function submit() {
     if (!valid || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
       const payload: FeedbackPayload = {
-        orderId,
         categories,
         rolled: wantsRolled ? rolled : undefined,
         boba: wantsBoba ? boba : undefined,
@@ -178,7 +117,7 @@ function FeedbackForm({
         throw new Error(t || `HTTP ${r.status}`);
       }
       const data = (await r.json()) as SubmitResponse;
-      onSubmitted(data);
+      onSubmitted(data, isHighRating());
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -190,9 +129,7 @@ function FeedbackForm({
     <div className="min-h-screen bg-rollo-paper">
       <Header />
       <main className="mx-auto max-w-xl px-5 pb-32 pt-4 space-y-5">
-        {wantsRolled && (
-          <RolledForm value={rolled} onChange={setRolled} />
-        )}
+        {wantsRolled && <RolledForm value={rolled} onChange={setRolled} />}
         {wantsBoba && <BobaForm value={boba} onChange={setBoba} />}
 
         {/* "Anything else?" — generic block shown for every submission */}
@@ -224,8 +161,8 @@ function FeedbackForm({
                 Get $1 off your next visit
               </h2>
               <p className="text-rollo-ink-soft text-sm mt-1">
-                Drop your email and we'll send a $1-off code you can use on
-                your next visit. One per customer.
+                Drop your email and we'll show your $1-off code on the next
+                screen and email you a copy. One per customer.
               </p>
             </div>
           </div>
@@ -251,7 +188,8 @@ function FeedbackForm({
             </div>
           </div>
           <p className="text-xs text-rollo-ink-muted">
-            We'll only email your gift card — no marketing spam, no list-selling.
+            We'll only use your email for your gift card — no marketing spam, no
+            list-selling.
           </p>
         </section>
 
@@ -277,7 +215,7 @@ function FeedbackForm({
             onClick={submit}
             disabled={!valid || submitting}
           >
-            {submitting ? "Sending…" : "Submit feedback"}
+            {submitting ? "Sending…" : "Submit review"}
           </button>
         </div>
       </div>
@@ -327,17 +265,6 @@ function SubmitHint({
     <span className="text-rollo-ink-muted text-xs">
       Rate {missing.join(" + ")} above
     </span>
-  );
-}
-
-function CenteredSpinner({ label }: { label: string }) {
-  return (
-    <div className="min-h-screen flex items-center justify-center text-rollo-ink-soft">
-      <div className="space-y-3 text-center">
-        <div className="w-8 h-8 mx-auto rounded-full border-2 border-rollo-pink border-t-transparent animate-spin" />
-        <div className="text-sm">{label}</div>
-      </div>
-    </div>
   );
 }
 

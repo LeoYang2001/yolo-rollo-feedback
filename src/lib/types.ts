@@ -5,8 +5,6 @@ export type Category = "rolled" | "boba";
 
 /** Customer-submitted payload. POST /api/feedback accepts this. */
 export interface FeedbackPayload {
-  /** Clover order id if they came from the confirmation page. */
-  orderId?: string;
   /** Which categories they're rating in this submission. */
   categories: Category[];
 
@@ -71,16 +69,17 @@ export interface RewardResponse {
     | "error";
   /** Masked card identifier (last 4) when issued. */
   cardLast4?: string;
-}
-
-/** Server response from GET /api/order/[orderId]/categories. */
-export interface OrderCategoriesResponse {
-  orderId: string;
-  /** Categories detected in the order's line items. */
-  categories: Category[];
-  /** Customer display name from the Clover order, if available. */
-  customerName?: string;
-  /** Raw item names — used to pre-fill `flavorsTried` / `drinksTried`. */
-  rolledItems: string[];
-  bobaItems: string[];
+  /**
+   * Full reward code, shown on /thanks so the customer can redeem it
+   * on screen (it's their own reward — same value we email them). For
+   * a real Clover card this is the gift-card number; for the fallback
+   * it's the `YR-XXXX-XXXX` code.
+   */
+  code?: string;
+  /** QR PNG (data: URL) encoding `code`, for on-screen display. */
+  qrDataUrl?: string;
+  /** Gift-card security code — only set for real Clover cards. */
+  securityCode?: string;
+  /** How it was minted — drives the on-screen redemption copy. */
+  source?: "clover" | "custom";
 }

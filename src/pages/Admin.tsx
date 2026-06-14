@@ -41,7 +41,6 @@ interface BobaChunk {
 }
 interface FeedbackRow {
   id: string;
-  orderId?: string;
   categories: Category[];
   rolled?: RolledChunk;
   boba?: BobaChunk;
@@ -426,7 +425,6 @@ function FeedbackCard({ row }: { row: FeedbackRow }) {
           </div>
           <div className="text-xs text-rollo-ink-muted">
             {ts.toLocaleString()}
-            {row.orderId && ` · #${row.orderId.slice(-6).toUpperCase()}`}
             {row.email && ` · ${row.email}`}
           </div>
         </div>

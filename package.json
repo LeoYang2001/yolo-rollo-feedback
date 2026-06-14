@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "api": "vercel dev --listen 3001",
+    "dev:full": "concurrently -k -n vite,api -c green,magenta \"npm:dev\" \"npm:api\"",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "vercel-dev": "vercel dev"
+    "preview": "vite preview"
   },
   "dependencies": {
     "firebase-admin": "^12.7.0",
@@ -25,6 +26,7 @@
     "@vercel/node": "^3.2.17",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
+    "concurrently": "^10.0.3",
     "postcss": "^8.4.45",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.5.4",

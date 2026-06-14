@@ -21,10 +21,8 @@ const CHOICES: { key: Category; label: string; emoji: string; sub: string }[] =
   ];
 
 export default function CategoryPicker({
-  bootstrapErr,
   onContinue,
 }: {
-  bootstrapErr: string | null;
   onContinue: (categories: Category[]) => void;
 }) {
   const [picked, setPicked] = useState<Set<Category>>(new Set());
@@ -51,13 +49,6 @@ export default function CategoryPicker({
           <p className="text-rollo-ink-soft mt-1">
             Pick everything you tried — we'll ask a few quick questions.
           </p>
-          {bootstrapErr && (
-            // Soft fallback note when the order lookup failed. Doesn't
-            // block the form; we just lose the pre-fill convenience.
-            <p className="mt-2 text-xs text-rollo-ink-muted">
-              (We couldn't pre-fill from your order — no big deal.)
-            </p>
-          )}
         </div>
       </header>
 

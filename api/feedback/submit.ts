@@ -43,6 +43,15 @@ interface RewardResponse {
     | "error";
   /** Visible only on success — masked card number for confirmation. */
   cardLast4?: string;
+  /**
+   * Full reward code + QR for on-screen display on /thanks. Safe to
+   * return: it's the customer's own reward, the same value we email
+   * them. Only set when a card was minted.
+   */
+  code?: string;
+  qrDataUrl?: string;
+  securityCode?: string;
+  source?: "clover" | "custom";
 }
 
 export default async function handler(
@@ -87,7 +96,6 @@ export default async function handler(
       typeof s === "string" ? s.slice(0, max) : undefined;
 
     const doc: FeedbackDoc = {
-      orderId: typeof body.orderId === "string" ? body.orderId : undefined,
       categories: okCategories,
       rolled: body.rolled
         ? {
@@ -181,7 +189,7 @@ async function tryIssueReward(args: {
 
   // Generate the QR PNG as a data: URL we can embed straight into the
   // email HTML. The encoded value is the gift card number — same thing
-  // staff would type into the POS to redeem.
+  // staff types into the POS to redeem.
   let qrDataUrl: string;
   try {
     qrDataUrl = await qrcode.toDataURL(card.cardNumber, {
@@ -195,7 +203,9 @@ async function tryIssueReward(args: {
   }
 
   // Record the reward BEFORE the email — that way if the customer
-  // hits Submit twice we won't accidentally mint two cards.
+  // hits Submit twice we won't accidentally mint two cards. Stores the
+  // source ("clover" vs "custom") so /redeem and /admin can show the
+  // right redemption instructions.
   try {
     await firestore()
       .collection("rewards")
@@ -203,9 +213,11 @@ async function tryIssueReward(args: {
         feedbackId: args.feedbackId,
         email: args.email.trim().toLowerCase(),
         phone: args.phone,
-        cardId: card.id,
         cardNumber: card.cardNumber,
+        securityCode: card.securityCode,
+        expiresAt: card.expiresAt,
         amountCents: card.amount,
+        source: card.source,
         createdAt: FieldValue.serverTimestamp(),
       });
   } catch (e) {
@@ -216,24 +228,36 @@ async function tryIssueReward(args: {
 
   const { subject, html } = renderGiftCardEmail({
     cardNumber: card.cardNumber,
+    securityCode: card.securityCode,
     amountCents: card.amount,
     qrDataUrl,
     customerName: args.customerName,
+    isCloverCard: card.source === "clover",
   });
+  // Card display fields returned to the client so /thanks can render
+  // the code + QR on screen (in addition to the email copy).
+  const display = {
+    cardLast4: card.cardNumber.slice(-4),
+    code: card.cardNumber,
+    qrDataUrl,
+    securityCode: card.securityCode,
+    source: card.source,
+  };
+
   const sent = await sendEmail({ to: args.email, subject, html });
   if (!sent.ok) {
     console.warn("[reward] email send failed:", sent.reason);
     return {
       issued: true, // card was minted; just delivery failed
       status: "email-failed",
-      cardLast4: card.cardNumber.slice(-4),
+      ...display,
     };
   }
 
   return {
     issued: true,
     status: "emailed",
-    cardLast4: card.cardNumber.slice(-4),
+    ...display,
   };
 }
 

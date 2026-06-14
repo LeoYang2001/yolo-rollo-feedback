@@ -2,12 +2,10 @@ import { Link, useLocation } from "react-router-dom";
 import type { RewardResponse } from "../lib/types";
 
 /**
- * Thanks page — shows different copy depending on whether the customer
- * got a gift card emailed, was skipped (no email, dedupe, cap), or hit
- * a backend error.
- *
- * The reward result rides in via react-router state so this page
- * doesn't need to re-call the API.
+ * Thanks page — shows the customer's $1 reward on screen (code + QR)
+ * when one was issued, or the right fallback copy (no email, dedupe,
+ * cap, error). The reward result rides in via react-router state so
+ * this page doesn't need to re-call the API.
  */
 
 interface LocationState {
@@ -21,7 +19,7 @@ export default function Thanks() {
   const block = renderRewardBlock(reward);
 
   return (
-    <div className="min-h-screen bg-rollo-paper flex flex-col items-center justify-center px-5 text-center">
+    <div className="min-h-screen bg-rollo-paper flex flex-col items-center justify-center px-5 py-12 text-center">
       <div className="font-brand text-4xl text-rollo-pink leading-none">
         yolo rollo
       </div>
@@ -29,17 +27,17 @@ export default function Thanks() {
         🍓
       </div>
       <h1 className="font-display text-3xl font-bold mt-6 text-rollo-ink">
-        Thanks for the feedback!
+        Thanks for the review!
       </h1>
       <p className="text-rollo-ink-soft mt-3 max-w-sm">
-        We read every submission. Your notes go straight to the team
-        working on the menu.
+        We read every submission. Your notes go straight to the team working on
+        the menu.
       </p>
 
       {block && <div className="mt-8 w-full max-w-sm">{block}</div>}
 
       <Link to="/" className="rollo-btn-secondary mt-8">
-        Leave another response
+        Leave another review
       </Link>
     </div>
   );
@@ -47,38 +45,15 @@ export default function Thanks() {
 
 function renderRewardBlock(reward?: RewardResponse) {
   if (!reward) return null;
-  if (reward.status === "emailed") {
-    return (
-      <RewardCard tone="success" emoji="🎁">
-        <div className="font-bold text-rollo-pink-deep">
-          Check your email — your $1-off code is on the way.
-        </div>
-        {reward.cardLast4 && (
-          <div className="text-rollo-ink-soft text-sm mt-1">
-            Code ending in <span className="font-mono">{reward.cardLast4}</span>
-          </div>
-        )}
-        <div className="text-rollo-ink-muted text-xs mt-2">
-          If you don't see it in 5 min, check spam.
-        </div>
-      </RewardCard>
-    );
+
+  // Card was minted — show it on screen so they can redeem right away.
+  if (
+    (reward.status === "emailed" || reward.status === "email-failed") &&
+    reward.code
+  ) {
+    return <IssuedCard reward={reward} emailed={reward.status === "emailed"} />;
   }
-  if (reward.status === "email-failed") {
-    return (
-      <RewardCard tone="warn" emoji="⚠️">
-        <div className="font-bold text-rollo-ink">
-          Your $1-off code is ready but the email didn't go through.
-        </div>
-        <div className="text-rollo-ink-soft text-sm mt-1">
-          Show this to staff and we'll look it up:
-          {reward.cardLast4 && (
-            <> code ending in <span className="font-mono">{reward.cardLast4}</span></>
-          )}
-        </div>
-      </RewardCard>
-    );
-  }
+
   if (reward.status === "already-rewarded") {
     return (
       <RewardCard tone="info" emoji="💜">
@@ -94,7 +69,7 @@ function renderRewardBlock(reward?: RewardResponse) {
       <RewardCard tone="info" emoji="🙏">
         <div className="font-bold">We've maxed out today's giveaways.</div>
         <div className="text-rollo-ink-soft text-sm mt-1">
-          Your feedback still made it through — thank you!
+          Your review still made it through — thank you!
         </div>
       </RewardCard>
     );
@@ -106,13 +81,69 @@ function renderRewardBlock(reward?: RewardResponse) {
           Want a $1 gift card next time?
         </div>
         <div className="text-rollo-ink-soft text-sm mt-1">
-          Drop your email on your next submission and we'll send one over.
+          Add your email on your next review and we'll send one over.
         </div>
       </RewardCard>
     );
   }
-  // service-unavailable / error / disabled — keep the message generic
+  // service-unavailable / error / disabled / issued-without-code — keep
+  // the message generic.
   return null;
+}
+
+/** On-screen gift card: QR + code + redemption copy. */
+function IssuedCard({
+  reward,
+  emailed,
+}: {
+  reward: RewardResponse;
+  emailed: boolean;
+}) {
+  const isClover = reward.source === "clover";
+  return (
+    <div className="bg-white rounded-rollo-card p-5 shadow-rollo-card text-center">
+      <div className="text-rollo-pink-deep font-display font-bold text-lg">
+        🎁 Your $1-off reward
+      </div>
+
+      {reward.qrDataUrl && (
+        <img
+          src={reward.qrDataUrl}
+          alt="$1 reward QR code"
+          className="w-44 h-44 mx-auto mt-4"
+        />
+      )}
+
+      {reward.code && (
+        <div className="mt-3 font-mono text-lg tracking-widest text-rollo-ink font-semibold">
+          {reward.code}
+        </div>
+      )}
+
+      {isClover && reward.securityCode && (
+        <div className="mt-2 text-sm text-rollo-ink-soft">
+          Security code:{" "}
+          <span className="font-mono">{reward.securityCode}</span>
+        </div>
+      )}
+
+      <div className="mt-4 text-sm text-rollo-ink-soft">
+        {isClover
+          ? "Show this QR at the counter on your next visit — staff scan it like any gift card."
+          : "Show this QR (or read the code) to staff for $1 off your next visit."}
+      </div>
+
+      <div
+        className={`mt-3 text-xs ${
+          emailed ? "text-rollo-ink-muted" : "text-rollo-pink-deep font-semibold"
+        }`}
+      >
+        {emailed
+          ? "We also emailed you a copy."
+          : "Heads up — we couldn't email a copy, so screenshot this so you don't lose it."}
+      </div>
+    </div>
+  );
 }
 
 function RewardCard({
