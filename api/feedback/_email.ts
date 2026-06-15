@@ -72,11 +72,16 @@ export function renderGiftCardEmail(args: {
   cardNumber: string;
   securityCode?: string;
   amountCents: number;
-  qrDataUrl: string;
   customerName?: string;
   isCloverCard?: boolean;
 }): { subject: string; html: string } {
   const amount = (args.amountCents / 100).toFixed(2);
+  // Link the QR from a hosted endpoint — Gmail blocks inline `data:`
+  // images, so an embedded data URL shows as a broken image. Override the
+  // base host via EMAIL_ASSET_BASE_URL if the production domain changes.
+  const assetBase =
+    process.env.EMAIL_ASSET_BASE_URL ?? "https://yolo-rollo-feedback.vercel.app";
+  const qrUrl = `${assetBase}/api/qr?code=${encodeURIComponent(args.cardNumber)}`;
   const hello = args.customerName ? `Hey ${escape(args.customerName)},` : "Hey,";
   const subject = `Your $${amount} Yolo Rollo gift card 🍓`;
 
@@ -113,7 +118,7 @@ export function renderGiftCardEmail(args: {
         Thanks for the feedback. ${intro}
       </p>
       <div style="background:#FFFFFF;border-radius:22px;padding:24px;text-align:center;box-shadow:0 6px 18px -10px rgba(184,21,96,0.18);">
-        <img src="${args.qrDataUrl}" alt="$${amount} reward QR" style="width:240px;height:240px;display:block;margin:0 auto;" />
+        <img src="${qrUrl}" alt="$${amount} reward QR" width="240" height="240" style="width:240px;height:240px;display:block;margin:0 auto;" />
         <div style="margin-top:16px;font-family:'Geist Mono',monospace;font-size:18px;letter-spacing:2px;color:#2A1722;font-weight:600;">
           ${escape(args.cardNumber)}
         </div>

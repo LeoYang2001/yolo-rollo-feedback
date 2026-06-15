@@ -230,7 +230,6 @@ async function tryIssueReward(args: {
     cardNumber: card.cardNumber,
     securityCode: card.securityCode,
     amountCents: card.amount,
-    qrDataUrl,
     customerName: args.customerName,
     isCloverCard: card.source === "clover",
   });
